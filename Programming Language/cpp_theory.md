@@ -48,16 +48,60 @@ C++程序的三种programming paradigms，分别为procedural model, abstract da
 	>一个严格的编译器可以在编译时期解析一个“通过该object而触发的virtual function调用操作”，因而回避virtual机制。（P34）  
 	>对于这句话的理解，应该是说可以在编译期间确定的virtual调用，就放在编译期。
 	
+	**个人理解**：关于多态，使用指针或引用而不用object，类似于浅拷贝和深拷贝的关系，即多态的话只能浅拷贝，且浅拷贝非常容易实现。
+	
 ###The Semantics of Constructors
 本章中使用比较频繁的术语：implicit, explicit, trivial, nontrivial, memberwise, bitwise和semantics。  
 implicit是指编译器在某些情况下会对现有代码做一些额外处理，比如conversion；  
 explicit主要是指C++中的关键字；  
-trivial，是指类型为built-in类型以及与C语言中struct对等的类型（非OO的ADT）。
+trivial，是指类型为built-in类型以及与C语言中struct对等的类型（struct中不能包括具有default constructor的数据成员）。
 nontrivial，与上述相反。
 memberwise，bitwise和semantics直接从单词字面理解。
-####Default Constructor的建构操作
-1. 编译器需要以及程序员需要
+####Default Constructor的建构操作  
+在用户没有定义default constructor时，编译器会根据情况进行default ctor的合成，并且只有在nontrivial的类型时，编译器才需要进行合成。对于nontrival类型中的trivial数据成员，或者trivial类型，则是程序员需要进行处理的（也就是需要初始化）。下面介绍四种编译器需要合成的default constructor，也就是用户没有定义default constructor且该类型为nontrival。
+  
+1. 带有default constructor的member class object  
+	class中有带有用户已定义default constructor的数据成员。对这种class的default constructor的合成操作，只有在被调用时才会发生。   
+	对于多个编译模块（不同.cpp文件），需要避免合成多个default ctor。解决方法有两种，法一是将合成的default ctor(或者copy ctor, dtor, assignment copy operator)以inline方式完成；法二则应对不适合inline的情况，合成为explict non-inline static实体。  
+	**对于自动合成所产生的代码，编译器都是将其放置在user code之前。**  
+	若class中包括具有default ctor的多个data member，按成员的声明顺序添加成员对应的default ctor代码。
+2. 带有default constructor的base class
+	若derived class没有定义default ctor，而其base class定义了，此时编译器也需要进行default ctor的合成。
+3. 带有一个virtual function的class
+	class声明（或继承）一个virtual function；class派生自一个继承串链，其中有一个或更多的virtual base classes。这两种情况都需要合成default ctor。  
+	编译器会对所有ctor（包括用户已定义的非default ctor）进行扩张，对class object中添加数据成员vptr，用于指向虚函数表，并且虚函数表也是有编译器产生出来的。  
+4. 带有一个virtual base class的class  
+	在derived class中，virtual base class subobject不能沿用非virtual的base class subobject的实现方式（若沿用的话，在菱形继承链中，可能出现末端的derived class包含两次virtual base class subobject的情况），因此，涉及到对virtual base class的成员访问时，需要做特殊处理。有些编译器是这样实现的，在derived class object的每一个virtual base classes中，安插一个指针，通过该指针完成对virtual base class的成员操作。
 	
+####Copy Constructor的建构操作
+有三种情况，会调用copy ctor，分别是赋值操作符，函数传参以及函数返回。若用户没有提供一个explicit copy ctor，编译器会按memberwise的方式实施copy ctor。对于class中的data member成员，递归的进行memberwise操作（<font color='red'>若是定义了copy ctor的data member， 在VS2010上测试是直接调用该成员的copy ctor，而不是递归的memberwise</font>）。
+>一个良好的编译器可以为大部分class object产生bitwise copies，当class不展现bitwise copy semantics时，default ctor和copy ctor才由编译器产生出来。  
+
+* 不会Bitwise copy semantics的四种情况  
+	与合成default ctor的四种情况类似，注意对比。  
+	（1）class中包括copy ctor的member object（不论是用户自定义还是编译器合成的，注意，要清楚编译器在何时需要合成copy ctor）  
+	（2）class继承自一个base class，而后者也有copy ctor（不论是用户自定义还是编译器合成的）  
+	（3）class声明了一个或多个virtual functions时。这种情况涉及到vptr的拷贝，若是对等类型（即名字一样的类型），依旧可以实行bitwise copy。但若不对等，比如将derived class object赋值到base class object，若也采用bitwise copy，便会出现问题，比如，derived class改写的virtual function中用到了derived class才有的data member。  
+	（4）当class派生自一个继承串链，其中有一个或多个virtual base classes。
+	>每一个编译器对于虚拟继承的支持承诺，都表示必须让"derived class object中的virtual base class subobject位置"在执行期就准备妥当。（P57）  
+	
+	与情况（3）类似，同类型的依旧可以bitwise，而对于derived class向base class赋值的情况，编译器必须要处理好virtual base class pointer/offset的初值。
+
+若类的设计者提供了copy ctor（或者说是上述四种自动合成的copy ctor），而该类可以通过bitwise copy semantics进行正确的copy，那要不要调用copy ctor呢？（<font color='red'>争议话题</font>）
+
+####Program Transformation Semantics
+Named Return Value（NRV）优化，是标准C++编译器必须的功能（虽然正式标准未规定）。所谓NRV，即对于函数的返回对象，在不优化时会调用构造函数产生一个临时对象，之后再返回，在赋值完成之后，该临时对象析构销毁。NRV可以避免产生这种不必要的构造和析构行为，可以对比《More Effective C++》Item20.  
+>对于memcpy()和memset()，只有在“classes不含任何由编译器产生的内部members”时才能有效运行。（P73）  
+
+####Member Initialization List
+>使用member initialization list的四种情况，①初始化一个reference member时；②初始化一个const member时；③调用一个base class的ctor，而它有一组参数时；当调用一个member class的ctor，而它有一组参数时（P75）  
+>编译器会一一操作initialization list，以适当次序在ctor之内安插初始化操作，并且在任何explicit user code之前。（P77）注意，初始化顺序是数据成员的声明顺序。
+
+###The Semantics of Data
+
+
+
+
 ##参考资料
 
 [Opaque_pointer_url]:"https://en.wikipedia.org/wiki/D-pointer"
