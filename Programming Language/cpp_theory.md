@@ -98,10 +98,82 @@ Named Return Value（NRV）优化，是标准C++编译器必须的功能（虽�
 >编译器会一一操作initialization list，以适当次序在ctor之内安插初始化操作，并且在任何explicit user code之前。（P77）注意，初始化顺序是数据成员的声明顺序。
 
 ###The Semantics of Data
+关于C++ Object所占用的空间，需要考虑如下三个因素：(1)语言本身所造成的额外负担，包括指向虚函数表的vptr和指向virtual base class subobject的指针；(2)alignment的限制；(3)编译器对于特殊情况的优化处理。比如，没有任何数据成员的object会被安插1个char类型的成员，用于在内存中占据位置。  
+对于nonstatic data members，直接存放于每一个class object之中，且尽量考虑空间优化、存取速度优化以及C语言中struct数据配置的兼容性。对于static data members，则被放在程序的一个global data segment中，即使该class没有任何object实体，其static data members也已经存在（非const的static data member，需要在类的外部进行定义，若没有在外部定义，相当于只申明了，此时也不会存在）另外，函数中的局部变量在函数调用时才会产生。
+####The Binding of a Data Member
+对member functions本身的分析，会直到整个class的声明都出现了才开始。因此，在一个inline member function函数体内的一个data member绑定操作，会在整个class声明完成之后才发生。但是对于函数的参数列表类型(包括形参类型和返回类型)，则在第一次遇到时就决议（resolved），而不是等到class声明结束。因此，对于typedef要采取防御式编程，即class声明体内若有typedef，放在最开始，以免与全局的typedef冲突。
+####Data member layout
+nonstatic data member在class object中的排列顺序与其声明顺序一致。C++ Standard要求，在同一个access section（也就是public, protected, private，若声明了两个public，则算两个access section。在各access section中，data members的排列只需符合“较晚出现的members在class object中有较高的地址”，至于地址连续与否，不做要求，并且access section级别的顺序，可以不按声明的顺序。编译器合成的data members（如vptr），其放置位置是任意的，C++ Standard没做要求。在P109-P110，讲述了vptr放置位置的两种实现，cfront是将其放置在末尾，这样可以保留base class C struct，兼容C代码；MS的实现则是放在最前面，因为很少会从C struct来派生一个多态性质的class。  
+关于比较两个nonstatic data members的内存地址，书中提供的程序编译不能通过（GCC与VS都不行），自己稍作修改了一番，证实可行。
+
+        template<class T, class T1, class T2>
+        int access_order(T1 T::*mem1, T2 T::*mem2)
+        {
+            T1 **pp1 = (T1**)&mem1;
+            T2 **pp2 = (T2**)&mem2;
+            T1 * p1 = *pp1;
+            T2 * p2 = *pp2;
+            if (p1 > p2)
+                return 1;
+            else if (p1 < p2)
+                return -1;
+            else
+                return 0;
+        }
+对于data member的指针，除了type之外，还需要加上class前缀，比如Point3d中的float* ，则对外显示是Point3d::float* ，这样导致该类型无法直接转成float*（即普通的，无class前缀），且无法对这种类型的指针进行比较（GCC会报错），这种限制可以增加一层间接性进行解决，解法见上述代码，即双重指针之后，解引用一次，便可以获得data member指针指向的地址。上述函数的使用方法，access_order(&Point3d::x, &Point3d::y)
+####Data member的存取
+* Static Data Members  
+对于static data members，通过指针和通过一个对象进行存取，两者效率是一样的，因为static data members并不在class object中，语法上通过'.'和'->'只不过方便书写，最终编译器是通过ObjectName::staticname来进行存取的。  
+若获取一个static data members的地址，将会得到一个指向其数据类型的指针，而不是一个指向其class member的指针，因为static data member并不在class object中。
+
+* Name mangling  
+<font color='red'>此处待完成</font>
+[Name Mangling][name_mangling_url]
+
+* Nonstatic Data Members  
+在存取非静态数据成员时，可以带object(object.mem，称为explicit)或者不带object前缀(mem，称为implicit，其实编译器最后转成了this->mem)。关于指向data member指针其offset加1等以后<font color='red'>再补充</font>。对于非静态数据成员（包括单一继承或者多重继承，但不包括虚基类继承），其offset在编译期间便可获知，因此，其存取效率与C语言中的struct成员是一样的。  
+        
+        Point3d origin;
+        Point3d *pt = &origin;
+        origin.x = 0;
+        pt->x = 0;
+上述代码用于比较通过object和pointer这两种方式的存取效率，若Point3d是一个derived class，而在其继承结构中有一个virtual base class，并且被存取的member（上述中的x）是从该virtual base class继承而来的member时，两者效率就会有重大差异，通过指针的方式必须要到执行期才能确定offset。其它情况下，二者没有差异。<font color='red'>第一，origin如何确定offset？第二，一个积极进取的编译器甚至可以静态地经由origin就解决掉对x的存取？（P99）</font>
+####继承与Data member
+>在C++继承模型中,一个derived class object所表现出来的东西，是其自己的members加上其base class(es) members的总和，至于derived class members和base class(es) members的排列次序并未在C++ Standard中强制指定。（P99）  
+
+* Inheritance without Polymorphism  
+	一般而言，具体继承（concrete inheritance，相对于虚拟继承 virtual inheritance）并不会增加空间或存取时间上的额外负担，并且使用者并不需要知道这些类是否有继承关系，其表现跟独立的类一样。书中讲了两点这方面的缺点，第一点说是经验不足的人可能会重复设计一些相同操作的函数，并谈了inline设计的重要性（<font color='red'>第一点真没看懂，书中的例子感觉设计比较合理，难道我经验不足？</font>）；第二点将class分为多层后，可能会膨胀，这点主要是讲了**在derived class中，需要保持base class subobject的原样性**。若不能保证，即原来在base class subobject中有些alignment的空间，为了充分利用，将derived class中新的数据成员放置于此。这样，若在进行derived class object复制时，在复制base class subobject阶段，则alignment区域的值未定义，这样复制过去会覆盖新的数据成员的值，导致bug。
+
+* Adding Polymorphism  
+ 
+	在继承关系中，提供virtual function，来支持OO Paradigm。这样，需要对class做一些处理，以便支持这样的弹性，数中列举了四个方面，分述如下：  
+	 （1）为class导入一个virtual table, 用于存放它所声明的每一个virtual function的地址，这个table的元素数目一般而言是被声明的virtual functions的数目，再加上一个或两个slots（用以支持type_info）  
+	（2）为class导入一个vptr，提供执行期链接，使每一个object能够找到相应的virtual table  （3）加强ctor，使其能够设定vptr的初值，使其指向virtual function table  
+	（4）加强dtor，使其能够释放vptr。  
+	<font color='red'>关于vptr放在最前端的好处，还待补充（看完4.4节后）</font>  
+ 
+* Multiple Inheritance  
+	单一继承提供了一种自然多态（natural polymorphism）形式，是关于classes体系中的base type和derived type之间的转换。若base class object和derived class object都是从相同地址开始，也就是derived class object中包含的base class subobject在最前面，此种情况下，将derived class object的地址赋值给base class pointer时，编译器不需做任何调整，而且效率也最佳。但当derived class object最开始不是包含base class subobject时（例如，base class没有虚函数，即没有vptr，而derived class中有，而编译器又将vptr放置在最前面），此时就需要编译器对指针所指地址进行调整。   
+
+	多重继承的复杂度在于derived class和其上一个base class乃至于上上一个base class之间的非自然关系。多重继承的问题主要发生在derived class object和其第二或后继的base class object之间的转换，不论是derived class object到base class subobject的转换，还是virtual function机制做转换。
+
+	对一个多重派生对象，将其地址指定给最左端（也就是第一个）base class（或者该class单一父类（即该class是单一继承的基类）），情况和单一继承时相同。至于第二个及以后的base classes的地址指定操作，则需要修改地址（调整偏移量），因为这些base class subobjects在中间，而不在开头。（书中P114举的例子很好，且举了一个派生类指针赋值给基类指针的例子）**注意，C++ Standard并未要求多重派生类在布局base class subobjects时，按照声明顺序来进行，但主流厂商都是遵照此种方式，因此，有了本段所述的情况。**
+
+	<font color='red'>关于P116所说的一种调整base class布局的优化技术，使用后可少一个vptr，实在没看懂</font>
+
+	第二个及以后的基类之data member，其位置（offset）在编译期就已经确定，存取成本只是一个简单的offset计算，就像单一继承一样简单，不管是经由一个指针、一个引用或者一个object来存取。**注意，此处没有考虑下一节所讲述的虚拟继承（Virtual Inheritance）**
+
+* Virtual Inheritance  
+	对于虚拟继承，一般的实现方法如下，class若内含一个或多个virtual base class subobject则会分为两个部分进行布局，一个不变局部和一个共享局部。不变局部不管后续如何演化，总是拥有固定的offset（从object的开头开始算起），所以这一部分数据可以直接存取。至于共享局部，所表现的就是virtual base class subobject。这一部分数据，其位置会因为每次的派生操作而有变化，因此它们只能间接存取。编译器厂商的差异就在于间接存取的方法不同。
+
+	cfront的策略：在派生类中，为每一个直接的虚拟基类安放一个指针，通过该指针存取虚拟基类的数据成员。缺点：（1）派生类需要为每个virtual base class背负一个额外的指针，负担大小与虚拟基类的数量成正比；（2）对虚拟基类数据成员的存取时间，会随继承链的加长而变大。
+
+	cfront策略缺点的解决之道：缺点（1）：Microsoft通过引入virtual base class table,每一个class若有一个或多个虚拟基类，则会安插一个指针，指向该表。另一种解决方法，是在virtual function table中，放置virtual base class的offset（而不是地址）。<font color='red'>注：书中说后一种方法存取成员较为昂贵，没看出来与Microsoft哪里昂贵了？</font>缺点（2）：经由拷贝操作取得的所有的nested virtual base class指针，
 
 
 
-
+####Object member efficiency
 ##参考资料
 
 [Opaque_pointer_url]:"https://en.wikipedia.org/wiki/D-pointer"
+[name_mangling_url]:"https://en.wikipedia.org/wiki/Name_mangling"
