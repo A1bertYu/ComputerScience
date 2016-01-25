@@ -1,5 +1,5 @@
 #QT学习
-本文档主要记录QT使用的技术，以及实践中遇到的工程问题。因此分为两个部分，原理和工程。（并且讨论版本为QT4.8.4）
+本文档主要记录QT使用的技术，以及实践中遇到的工程问题。因此分为两个部分，原理和工程，并且讨论版本为QT4.8.4.
 
 ##QT原理
 在Assistant的章节"Develop with Qt"，介绍了QT中使用到的技术，下面对此进行分别说明。
@@ -23,8 +23,19 @@ QObject是所有QT对象的基类。若要使用MOS，必须要继承QObject。
 	* 基于间隔驱动的定时器（sophisticated interval driven timers），可以优雅的将多个任务整合到事件驱动的GUI
 	* 层级鲜明以及可查询的对象树（object trees）
 	* 智能指针（guarded pointers）QPointer
-	* a dynamic cast that works across library boundaries
+	* a dynamic cast that works across library boundaries<font color='red'> 待研究</font>
+	
+	Object Model的基础类  
+	* QMetaClassInfo  
+		只是一些辅助信息，其中在assistant中介绍该类时提到宏Q_CLASSINFO，该宏只是其注释性作用，无它。另外，看了QMetaClassInfo的源码，其有一个QMetaObject指针类型的数据成员，在name()和value()是返回的该成员的相关信息。
+	* QMetaObject  
+		QMetaObject实例存储了QObject子类的所有meta-information。QObject的子类可以调用metaObject()来获得指向该子类的meta-object的指针，QObject的所有子类都拥有属于自己的QMetaObject实例。  
+		该类通常的程序中不会使用，除非要写meta-applications（例如脚本引擎、GUI生成器）
+	* QVariant  
+		The QVariant class acts like a union for the most common Qt data types.C++中，union  	
 
+		
+	
 #####Q_OBJECT
 
 
@@ -92,3 +103,19 @@ SCRIPTABLE
 最后，点睛之笔。C++ with the moc essentially gives us the flexibility of Objective-C or of a Java Runtime Environment, while maintaining C++'s unique performance and scalability advantages. It is what makes Qt the flexible and comfortable tool we have today.
 
 ##QT工程实践
+###Qt Linguist Manual
+主要涉及到两个命令行工具，lupdate和lrelease，前者用于搜寻源码文件（.cpp, .h和Qt Designer产生的.h文件）中的tr字符串，以便产生或者更新.ts文件；后者则将.ts文件转换为二进制的.qm文件，用于程序运行时的本地化，通过该.qm文件可以非常快速的查询翻译。
+###qmake
+
+###Qt Designer
+使用Qt设计师时，可以有两种模式，在“设置->属性”菜单中可以调整，分别为multi-window和docked window，这两种模式只是在编辑UI时呈现的编辑界面有不同（对UI本身没有影响），个人感觉后者在编辑UI时好用一点。
+  
+* Layout  
+Qt中的布局（Layouts）概念，布局用于管理和放置构成UI的元素（也就是QWidget）。Qt中的类QHBoxLayout, QVBoxLayout, QGridLayout, and QFormLayout用于自动处理布局。每一个QWidget有一个推荐的大小（即函数sizeHint()）。  
+Qt布局的作用：  
+（1）为适应不同的窗口大小，重新调整UI尺寸；  
+（2）能够调整UI中的各element大小，以适应本地化；  
+（3）Arrange elements to adhere to layout guidelines for different platforms.  
+
+* Containers in Qt Designer   
+	Container widgets可以以表格形式来管理一组object。

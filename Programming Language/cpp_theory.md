@@ -164,15 +164,176 @@ nonstatic data member在class object中的排列顺序与其声明顺序一致�
 	第二个及以后的基类之data member，其位置（offset）在编译期就已经确定，存取成本只是一个简单的offset计算，就像单一继承一样简单，不管是经由一个指针、一个引用或者一个object来存取。**注意，此处没有考虑下一节所讲述的虚拟继承（Virtual Inheritance）**
 
 * Virtual Inheritance  
-	对于虚拟继承，一般的实现方法如下，class若内含一个或多个virtual base class subobject则会分为两个部分进行布局，一个不变局部和一个共享局部。不变局部不管后续如何演化，总是拥有固定的offset（从object的开头开始算起），所以这一部分数据可以直接存取。至于共享局部，所表现的就是virtual base class subobject。这一部分数据，其位置会因为每次的派生操作而有变化，因此它们只能间接存取。编译器厂商的差异就在于间接存取的方法不同。
+	对于虚拟继承，一般的实现方法如下，class若内含一个或多个virtual base class subobject则会分为两个部分进行布局，一个不变局部和一个共享局部。不变局部不管后续如何演化，总是拥有固定的offset（从object的开头开始算起），所以这一部分数据可以直接存取。至于共享局部，所表现的就是virtual base class subobject。这一部分数据，其位置会因为每次的派生操作而有变化（**关于这点可以看后面中的data binding的思考**），因此它们只能间接存取。编译器厂商的差异就在于间接存取的方法不同。
 
 	cfront的策略：在派生类中，为每一个直接的虚拟基类安放一个指针，通过该指针存取虚拟基类的数据成员。缺点：（1）派生类需要为每个virtual base class背负一个额外的指针，负担大小与虚拟基类的数量成正比；（2）对虚拟基类数据成员的存取时间，会随继承链的加长而变大。
 
-	cfront策略缺点的解决之道：缺点（1）：Microsoft通过引入virtual base class table,每一个class若有一个或多个虚拟基类，则会安插一个指针，指向该表。另一种解决方法，是在virtual function table中，放置virtual base class的offset（而不是地址）。<font color='red'>注：书中说后一种方法存取成员较为昂贵，没看出来与Microsoft哪里昂贵了？</font>缺点（2）：经由拷贝操作取得的所有的nested virtual base class指针，
+	cfront策略缺点的解决之道：缺点（1）：Microsoft通过引入virtual base class table,每一个class若有一个或多个虚拟基类，则会安插一个指针，指向该表。另一种解决方法，是在virtual function table中，放置virtual base class的offset（而不是地址）。<font color='red'>注：书中说后一种方法存取成员较为昂贵，没看出来与Microsoft比哪里昂贵了？成本分散到了“对members的使用”上（P122）？</font>缺点（2）：经由拷贝操作取得的所有的nested virtual base class指针，即包括指向直接继承的基类和间接继承的基类的指针。
+	
+	>上述每一种方法都是一种实现模型，而不是一种标准。每一种模型都是用来解决“存取shared subobject内的数据<font color='red'>（其位置会因每次派生操作而有变化？</font><font color='blue'>关于该问题的原因，思考时请注意书中该页的例子，有一个非多态的class object来存取一个继承而来的virtual base class的member，通过'.'操作符来引用member时，可以在编译期决议，这种情况下virtual base class subobjects的位置不会变化。对于非指针类型的变量，C++不会对其进行动态绑定，也即所有操作都在编译期决议完成，而对于具有虚函数或者虚基类的类，在通过基类指针访问成员时（虚基类包括数据成员，而虚函数则是成员函数），是在执行期间进行决议的。关于为什么需要移到执行期决议，请看本小节后面关于dynamic binding的思考。**更新**，问题原因是基类指针可以指向派生类A，也可以指向派生类B，这样因为基类指针可以通过不同的派生操作来指向不同的派生类，导致了shared subobject位置发生了变化。）</font>”所引发的问题。由于对virtual base class的支持带来额外的负担以及高度的复杂性，每一种实现模型多少有点不同。（P122）
 
-
-
+<font color='red'>本节图3.5b待研究</font>  
+关于dynamic binding，为什么在给基类指针赋值时，编译器不能记住实际指针所指类型，从而可以在编译期间进行static binding，提高程序执行效率？应该说有时候编译器确实可以确定指针的实际类型，但并不是总是，比如给一个vector<Base*>变量，不停的push_back指向各种派生类对象的指针，此时就很难确定各元素所指向的实际类型，若真要确定，可以想象编译器实现的复杂度。而在运行时，dynamic binding的实现就很为简单统一。
 ####Object member efficiency
+书中测试了对于local float类型的变量读写，local float数组元素的读写，struct中float类型的数据成员的读写，OB对象中float数据成员通过set/get函数的访问。两个编译器比较结果，不开优化有差异，开了优化所有编译器的所有情况效率一样。  
+随后测试了虚拟继承下的数据成员访问，编译器未能识别出通过一个非多态对象来存取元素（虚拟基类的数据成员在这种情况下的offset可以在编译期决议完成，因此可以直接存取），依旧采用运行时的间接存取，压制了优化能力，导致了效率问题。
+####Pointer to Data Members
+>取一个nonstatic data member的地址，将会得到它在class中的offset（例如，&Point3d::z）；取一个绑定于真正class object身上的data member地址，将会得到该member在内存中的真正地址（例如 &origin.z，注意该值的类型是float* ，而不是float Point3d::* ，这算是实例化了吧）（P132）
+
+根据上面中引用的定义，那么class中第一个data member（若有vptr时，vptr不放在最前面的话）的offset是0，那么若与这个data member同类型的指针也赋值0的话，二者将无法区分（可以看P131下半页的例子）。为了解决这个问题，编译器将每一个member offset都加上了1。因此在使用指向member的指针时需要注意该问题。（P132上半页例子）【注意，P174写到，offset这种非完整的值，需要绑定于某个class object的地址上，才能够被存取，即offset需要有基准地址】（<font color='red'>在VS和GCC上还待验证</font>）另外，在多重继承时，指向基类的数据成员指针，与派生类中该基类对应的数据成员的指针类型是相同的。若该用后者的地方若使用了前者，因为是多重继承，基类中的数据成员，在基类的offset与在派生类中的offset不同，若派生类通过该offset来获取具体的数据成员的话，可能会导致非预期结果。（P132下半页例子）
+
+文中最后对指向Members的指针的效率问题进行了测试和讨论。主要用四种方式使用了指向member的指针，方式一：通过指向实例化对象的成员的指针，此时的类型已经不是指向member的指针类型，而是member类型的指针（比如，不是float Point3d::*，而是float *）；方式二：通过声明指向member之指针（如float Point3d::* bx），再通过实例（如pA.*bx）来引用该成员；方式三：非虚拟继承之后，来使用方式二来操纵数据成员；方式四：虚拟继承之后，使用方式二来操纵数据成员。虚拟继承因为增加了间接性（虚基类数据成员），导致优化能力降低，因此效率最低。
+
+###第4章 The Sematics of Function
+成员函数分为三种类型：static, nonstatic和virtual。其中，static不能为virtual，也不能用const修饰。
+####4.1 member的各种调用方式
+* Nonstatic Member Function  
+	C++设计准则之一就是：nonstatic member function至少必须和一般的nonmember function有相同的效率。  
+	nonstatic member function会被内化为nonmember function，也就是编译器会在前者的形参中，插入this指针，函数体内对nonstatic data members的存取操作，经由this指针来完成，而内化成的nonmember function的名字会进行“mangling”处理，编译器保证该名字唯一。
+* Name Mangling  
+	编译器对data members和member functions（包括static member function，其实对于nonmember function也会进行）都会进行Name Mangling处理。各编译器采用不同的Name Mangling，目前还没有统一标准出现。关于书中P146说道，Name Mangling用到了函数名称、参数数目和参数类型的信息（三样合起来称作signature），而没有用到返回类型，但若只有返回类型不一样，而signature一样的话，这不满足函数重载条件吧，也就是不会出现这种情况。<font color='red'>此处求证伪</font>  
+	对于非静态的成员函数，其Name Mangling之后，其地址类型是指向成员函数的指针类型。对于静态的成员函数，由于没有this指针，其经Name Mangling之后，地址类型是一个"nonmember 函数指针"，因此，其与nonmember函数差不多，这带来的好处是可以用作callback函数（P152）。
+* Virtual Member Functions  
+ 	对于class object（即不是指针），其调用虚函数时，编译器应该像对待一般nonstatic member function一样，在编译期完成决议。
+* Static Member Function  
+	在未引入static member function之前，若要不通过建立class object来使用其nonstatic member function，有一种方法如下：
+
+		((Point3d*)0)->object_count();
+	上述方法在VS2010测试通过，包括具有vptr的class。编译器对上述代码的转换为：
+
+		object_count( (Point3d*) 0 );
+	static member function的主要特性是没有this指针，其不能直接存取nonstatic data members，不能够被声明为const, volatile或virtual，不需要经由class object才能被调用。
+		
+		foo().object_count();
+	上述代码中，若object_count()为static member function，前面的foo()依旧要被evaluated。  
+####4.2 Virtual Member Functions
+本节的论述与我之前关于dynamic binding的一些思考相吻合（本文档前面）。
+
+	ptr->z()
+编译器对上述代码做如何处理，以便找到并调用z()的适当class object，是本节要讨论的问题。  
+方法一：  
+（1）主要思路就是将必要信息加在ptr身上，这些必要信息包括两点，① 对象的地址；② 对象类型的某种编码，或是某个结构（内含某些信息，用以正确决议出z()函数实例）的地址。  
+（2）该方法的缺点：① 明显增加了空间，即使程序并不适用多态（因为所有类型的ptr都要加这些信息）；② 打断了与C程序的链接兼容性。  
+
+那么方法一（1）②中的信息放在哪里好呢？该信息也就是P155提炼出的两点：ptr所指对象的真实类型（以便正确的选择z()实体），z()实体的位置（以便调用）。  
+
+* 关于消极多态（passive polymorphism）和积极多态(active polymorphism)  
+	P154叙述了这两个术语，在bing.com搜索了一下，并没有找到这方面的讨论，所以只好自己理解一番，记录于此。  
+	对于消极多态，我想作者的意思应该是基类指针指向派生类对象的地址，之后在其它地方可以通过强制转换为派生类指针进行使用（故编译期可决议），此时基类指针有点类似C语言中void*。有virtual base class时候是例外（编译期无法决议），难道是与P122中shared object会改变位置同样的原因？<font color='red'>待核实</font>。  
+	对于积极多态，也就是通过基类指针使用虚函数，另外，还有dynamic_cast的运用。无需多言。
+
+要识别一个class是否支持多态，唯一适当的方法就是看其是否有任何virtual function，若有，则该class需要这份执行期信息。
+
+实现上，对每一个多态class object，编译器会对其增加两个data members：一个是字符串或数字，用于表示class类型（type_info信息）；一个指针，指向虚函数表。  
+virtual functions可以在编译期间获知，且这一组地址是固定不变的，执行期不能新增或替换，也就是表的大小和内容都不会改变，其构建和存取皆可以由编译器完全掌握，不需要执行期的任何介入。
+
+虚函数表中的内容：  
+（1）被继承的class覆写了的那些基类虚函数的覆写版本；  
+（2）未被覆写的基类虚函数；  
+（3）纯虚函数，用于占位，也可以用于执行期异常的处理函数（<font color='red'>异常处理这种情况待确认</font>）。    
+每一个虚函数都被指派一个固定的索引值。当然，派生类可以增加新的虚函数，新增的虚函数信息也会放入虚函数表中。  
+
+	ptr->z()
+编译器将函数指针转换为虚函数表中的虚函数指针（解引用），处理过程等价于将语句改写为如下形式：
+
+	(*ptr->vptr[4])(ptr)
+
+上述语句中，slot 4中安放的具体函数地址，则需要到执行期才能确定。
+
+* 多重继承下的Virtual Functions  
+	本小节可以与第3章的多重继承（P112）对比学习。  
+	派生类支持虚函数的难度，统统落在第二个基类的subobject（书中例子的Base2 subobject）身上（也即对this指针进行调整）。注：下面笔记都是基于P160的示例代码。
+
+		Base *pbase2 = new Derived;
+	编译器需要对此进行调整，上述代码被转换为（编译期完成决议）：
+		
+		Derived *temp = new Derived;
+		Base *pbase2 = temp ? temp + sizeof(Base1) : 0;
+	若不调整，请思考如下的数据成员访问是否可行；若调整，又是否可行？
+
+		pbase2->data_Base2;
+	在删除pbase2时，也许要做调整，确保调用正确的dtor（执行期才能完成）
+
+		delete pbase2;
+
+	对比语句Base *pbase2 = new Derived和语句delete pbase2的调整，前者可以在编译期间决议，而后者的offset却只能在执行期决议。offset书中提到了几种方法，最初的是将给每个虚函数附加一个offset，而这样对那些不需要调整的虚函数不公平；还有一种是thunk方法，思想是需要调整this指针的虚函数，将其在虚函数表中对应的slot先进行指向thunk代码块（该代码块可以根据指针类型来调整this），而无需调整this指针的虚函数对应的slot中继续存放虚函数的地址。  
+
+	在多重继承下，一个derived class内含n-1个额外的virtual table（n表示其上一层base classes的数目）。针对每一个虚函数表，derived class中都有对应的vptr。对于一个class拥有多个虚函数表的情况，编译器的一种实现是给每一张虚函数表赋予唯一的表名称，在执行期，通过符号链接来寻找对应的虚函数表【书中是指通过动态链接的形式来实现多重继承下的派生类虚函数，故涉及到符号的解析】。Sun公司的实现是这样，将所有虚函数表合为一张表，第二张及以后通过第一张表的地址加上offset来获取就，据称性能改善明显。
+
+	* 三种情况使得多重继承的第二及后续基类影响对虚函数的支持  
+		（1）情况1：通过第二及后续基类类型的指针调用派生类的虚函数	  
+			如上述delete pbase2;所对应的情况。具体解决方案也如上述。  
+		（2）情况2：派生类型的指针，调用第二个及后续基类所定义的虚函数  
+			此处也需要做offset调整  
+		（3）情况3：虚函数返回类型有所变化，可能是base type，也可能是publicly derived type  
+			返回类型是base指针，派生类将其返回类型为派生类型指针，那么，首先要确定返回的指针类型，再进行offset调整。（书中P167的例子值得参考）  
+
+	对于情况3，sun公司提出了一种split functions的技术，即提供两个版本的函数，一个加offset，一个不加，再根据指针类型调用不同的函数。当split function较大时，就不产生两个了，而是提供多个进入点（entry points），根据情况选择不同的进入点。
+
+	IBM将调整放入被调用的虚函数中，若需要调整，则调整this指针，之后再执行所写代码。  
+	微软公司则引入了"address points"，以取代thunk策略，<font color='red'>具体没看懂(P167)</font>
+
+**关于虚函数表的一些思考**：书本P155说道一个class只有一个virtual table，这其实是针对单一继承来说。在P164讲到多重继承时，自然一个class有多个virtual tables。我们可以对比图4.1和图4.2，派生类的vptr自然与基类的vptr指向不同的表，留意观察表中各slot在虚函数改写前后的区别。	
+
+* 虚拟继承下的virtual functions
+	因为虚拟继承有virtual base subobject的指针，再加上vptr，使得编译器对此的支持非常复杂，书中也没有细说，作者建议，不要在virtual base class中声明nonstatic data members
+####4.3 函数的性能  
+	
+书中对比了inline member, nonmember, nonstatic member, static member和virtual member（又分单一继承、多重继承和虚拟继承三种）这些类型的执行效率。对于nonmember, nonstatic member和static member，效率是一样的（优化前后都一致）。所有类型中，inline的效率最高，特别是优化后，这表明inline不只是能够节省一般函数调用所带来的额外负担，也提供程序优化的额外机会（优化前相对于其它版本，是节省了函数调用带来的负担，而优化后，则是获得了额外的优化机会）。  
+
+对于虚函数，因为要涉及到执行期决议和this指针调整（thunk技术可只对需要调整的this指针进行调整），而书中测试的两个编译器不支持thunk技术，使得单一继承的虚函数也会有this调整（调整值为0）。在这种情况下，单一继承和多重继承就应该有同样成本，那为什么结果是多重继承性能稍差呢？书中分析发现用到了局部变量，多次ctor和dtor导致了性能的差异。在ctor对vptr进行设定时，古老的编译器的插入代码会对this进行非空测试【若this为空则在ctor进行new操作，现代编译器将new和ctor进行了分离，不会有这种情况】，当测试次数过多，会影响性能。  
+文中最后不使用局部对象（也就不会在每轮循环中调用ctor），发现频繁的ctor确实会影响性能。
+####4.4 指向Member Function的指针  
+取一个nonstatic member function的地址，若为非虚函数，则其为内存中的真正地址，然而，因为其需要this形参，故也必须绑定一个class object才能使用（这其实跟普通函数无异，只要是需要形参的函数，肯定是有参数才能使用）。  
+指向member function的指针声明、赋值和调用（<font color='red'>未测试</font>）：  
+	
+	double (Point::* pmf)();
+	pmf = &Point::y
+	origin.*pmf();
+	(ptr->*pmf)();
+P175中所述指向member selection运算符是否是指"->"和"."？<font color='red'>待确认</font>  
+
+* 指向Virtual Member Functions之指针  
+	若之前的pmf被赋值为虚函数的地址，那么在调用它时，是否也是适用虚函数机制呢？答案是肯定的。虚函数在编译期，其地址是未知的，仅知道其在virtual table中的索引，也就是说，对一个虚函数取地址，只能获得其索引。这样，对一个成员函数指针的evaluated，会因为该值有两种意义（指向nonvirtual和指向virtual）而复杂化，即编译器要识别出来到底指向那种类型。书中讲述了cfront的一种实现，即假定nonvirtual的地址至少大于127，而virtual的索引值不超过127.毕竟只能用值的范围来进行区分。  
+* 多重继承之下，指向member functions的指针  
+	这种情况下，指向成员函数的指针需要记录更多的信息，如指向的哪张虚函数表的哪个slot，为此，Stroustrup的实现是定义了如下的数据结构  
+
+		struct __mptr
+		{
+			int delta;/* this指针的offset值 */
+			int index;/* -1时表示不指向虚函数表，否则，表示虚函数表中的slot */
+			union 
+			{
+				ptrtofunc faddr;/* 表示非虚函数地址 */
+				int v_offset;/* 放置虚基类或者多重继承下的第二级后续基类的vptr位置 */
+			};
+		};
+
+	编译器所做的调整：
+
+		(ptr->*pmf)();
+	调整为
+
+		(pmf.index < 0) ? (*pmf.faddr)(ptr) : (*ptr->vptr[pmf.index](ptr))
+	在上述的实现中，不论指针是否指向虚函数，都需要付出判断成本。微软的一种实现是将faddr表示为非虚函数地址或者vcall thunk的地址，因此，不论是否为虚函数，直接进行(*pmf.faddr)(ptr)调用即可。  
+	虽然各编译器厂家实现不尽相同（反映在__mptr的定义和使用），但多重继承下的成员函数指针的复杂性可见一斑。  
+* 成员函数指针的效率  
+	涉及多重继承和虚函数的成员函数指针的使用，会有较差的性能。
+####4.5 Inline Functions
+> cfront有一套复杂的测试法，通常是用来计算assignments、function calls、virtual function calls等操作的次数。每个表达式（expression）种类有一个权值，而inline函数的复杂度就以这些操作的总和来决定。（P183）
+
+编译器处理一个inline函数，有两个阶段：  
+（1）分析函数定义。若函数因其复杂度和建构问题（<font color='red'>什么意思</font>），被判断不可成为inline，它会被转为一个static函数。（<font color='red'>此处的static是什么意思？文件作用域，有和用处？static member function，不可能吧?待核实</font>）  
+（2）函数确实被inline了，在扩展时，会带来参数的求值操作以及临时性对象的管理。  
+在cfront中，inline函数只有一个表达式(expression)，其第二或后继的调用操作不会被扩展出来（即如果一个表达式包含多个inline，则只有第一个会被inline）,看下面的例子：
+	
+	new_pt.x(lhs.x() + rhs.x());/* x()为inline函数 */
+	new_pt.x(lhs.x() + x__5PointFV.x(&rhs));/* cfront的扩展 */
+**注意**，上述为cfront的方法，书中也说其它编译器厂商对inline支持没兴趣，不知道是否也是如此扩展。<font color='red'>待验证</font>  
+
+* inline扩展  
+	对于inline函数的形式参数，若形参无需evaluate（无副作用），比如直接是变量或者常量，则会产生较好的结果。否则，需要构建临时变量（比如，参数是函数的返回值foo()）。当然，若inline函数中有局部变量（非形参），则也会导致临时变量产生。这些会导致代码的增长。**思考**，其实，将inline与宏对比，宏的替换也会产生局部变量，感觉是不可避免的，确实如很多编译器厂商所想，无需在inline上做过多工作。
+
 ##参考资料
 
 [Opaque_pointer_url]:"https://en.wikipedia.org/wiki/D-pointer"
