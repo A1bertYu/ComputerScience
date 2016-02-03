@@ -41,3 +41,17 @@ E表示指数部分，可正可负，占用k-bit。
 
 * case 3: Special Values  
 	此种情况对应指数部分的k-bit全为1。当M的n-bit全为0时，对应无穷大，根据符号位，来确定是正无穷还是负无穷。而当M-bit不是全0时，则对应一个NaN（Not a Number）
+
+##Chapter12 Concurrent Programming  
+
+
+###12.6 Using Threads for Parallelism  
+* Concurrency vs Parallelism（并发与并行）  
+从Fig12.30来看， Concurrency是包含Parallelism的。所有的程序可以分为两大类，sequential and concurrent programs. 顺序程序（sequential programs）只有一个逻辑流（a single logical flow），而并发程序（concurrent programs）则有多个并发流（multiple concurrent flows），并行程序是运行在多个处理器的并发程序，也就是说并行程序需要多处理器的支持。  
+网络解释：
+Concurrency: A condition that exists when at least two threads are making progress. A more generalized form of parallelism that can include time-slicing as a form of virtual parallelism.  
+Parallelism: A condition that arises when at least two threads are executing simultaneously.  
+[concurrency vs parallelism(stackoverflow)][url_concurrency_parallelism1], [concurrency vs parallelism(haskell.org)][url_concurrency_parallelism2]
+
+[url_concurrency_parallelism1]:https://wiki.haskell.org/Parallelism_vs._Concurrency
+[url_concurrency_parallelism2]:http://stackoverflow.com/questions/1050222/concurrency-vs-parallelism-what-is-the-difference
