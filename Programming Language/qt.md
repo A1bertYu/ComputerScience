@@ -119,3 +119,86 @@ Qt布局的作用：
 
 * Containers in Qt Designer   
 	Container widgets可以以表格形式来管理一组object。
+###网络文章  
+####Qt Internals & Reversing
+[文章地址][Qt_internal_reversing_url]    
+Daniel Pistelli  
+
+* 几个重要的宏  
+	
+		#define SLOT(a)          "1"#a  /* 在4.8.4版本中稍有区别 */
+		#define SIGNAL(a)        "2"#a
+
+		#if defined(QT_NO_KEYWORDS)
+		#define QT_NO_EMIT
+		#else
+		#define slots	/* 槽 */
+		#define signals protected /* 信号 */
+		#endif
+		#define Q_SLOTS
+		#define Q_SIGNALS protected
+		#define Q_PRIVATE_SLOT(d, signature)
+		#define Q_EMIT
+		#ifndef QT_NO_EMIT
+		#define emit /* 发射 */
+		#endif
+
+		#define Q_OBJECT_CHECK \
+		    template <typename T> inline 
+		    void qt_check_for_QOBJECT_macro(const T &_q_argument) const \
+		    { int i = qYouForgotTheQ_OBJECT_Macro(this, &_q_argument); i = i; }
+
+		/* 注意，下面两个模板函数不是宏 */
+		template <typename T>
+		inline int qYouForgotTheQ_OBJECT_Macro(T, T) { return 0; }
+		
+		template <typename T1, typename T2>
+		inline void qYouForgotTheQ_OBJECT_Macro(T1, T2) {}
+		#endif // QT_NO_MEMBER_TEMPLATES
+
+		/* 用作国际化 */
+		#define QT_TR_FUNCTIONS \
+		    static inline QString tr(const char *s, const char *c = 0) \
+		        { return staticMetaObject.tr(s, c); } \
+		    static inline QString trUtf8(const char *s, const char *c = 0) \
+		        { return staticMetaObject.trUtf8(s, c); } \
+		    static inline QString tr(const char *s, const char *c, int n) \
+		        { return staticMetaObject.tr(s, c, n); } \
+		    static inline QString trUtf8(const char *s, const char *c, int n) \
+		        { return staticMetaObject.trUtf8(s, c, n); }
+		
+		#define Q_OBJECT \
+		public: \
+		    Q_OBJECT_CHECK \
+		    static const QMetaObject staticMetaObject; \
+		    virtual const QMetaObject *metaObject() const; \
+		    virtual void *qt_metacast(const char *); \
+		    QT_TR_FUNCTIONS \
+		    virtual int qt_metacall(QMetaObject::Call, int, void **); \
+		private:
+从上面的宏Q_OBJECT的定义中，我们可以看到其有一个重要的public static数据成员staticMetaObject，其类型为QMetaObject，其定义重要部分摘录如下，具体可参考QT源码（QT4.8.4在文件qobjectdefs.h中）  
+ 
+		struct Q_CORE_EXPORT QMetaObject
+		{
+			struct { // private data
+		        const QMetaObject *superdata;
+		        const char *stringdata;
+		        const uint *data;
+		        const void *extradata;
+	    	} d;
+		};
+d的成员superdata是指使用了宏Q_OBJECT的类的直接基类的staticMetaObject（若是多重继承，则是第一个基类的staticMetaObject），因此，其直接基类必须是QObject或者QObject的派生类（因为要有staticMetaObject成员）。  
+d的成员stringdata包含了类的the literal metadata（文字信息）。  
+d的成员data包含了类的the metadata offsets, flags etc.通过data，得到offset，再通过offset以及stringdata来获得类成员函数名称。  
+The fourth member is a null terminated array of QMetaObject classes. 很少使用。  
+Qt dynamism relies on indexes, avoiding pointers.   
+参数的传递是通过指向指针数组的指针进行，当调用具体方法时，再进行适当的cast。Using pointers, of course, is the only way to put all kinds of types in an array. Arguments start from position 1, because position 0 is reserved for the data to return.   
+对于定义的信号，moc会自动生成函数的定义，函数体内主要是调用QMetaObject的 Activate method.  
+QMetaObject::activate()中，当前的connection（注意，信号和槽是connect的，故做此名称）是否需要立即被处理，或者是否放入队列稍后处理。若要立即处理，首先从当前的connection中获得需要调用的方法的ID，之后调用接收者的qt\_metacall方法。<font color='red'>关于Connection class，还需要研究。</font>  
+关于动态调用，使用QMetaObject提供的invokeMethod。
+
+###Dynamic C++ Proposal  
+[文章地址][Dynamic C++ Proposal url]  
+##参考
+[Qt_internal_reversing_url]:http://www.codeproject.com/Articles/31330/Qt-Internals-Reversing?msg=2827698#xx2827698xx   
+[Dynamic C++ Proposal url]:http://www.codeproject.com/Articles/31988/Dynamic-C-Proposal  
