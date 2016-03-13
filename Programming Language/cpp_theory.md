@@ -148,7 +148,8 @@ nonstatic data member在class object中的排列顺序与其声明顺序一致�
  
 	在继承关系中，提供virtual function，来支持OO Paradigm。这样，需要对class做一些处理，以便支持这样的弹性，数中列举了四个方面，分述如下：  
 	 （1）为class导入一个virtual table, 用于存放它所声明的每一个virtual function的地址，这个table的元素数目一般而言是被声明的virtual functions的数目，再加上一个或两个slots（用以支持type_info）  
-	（2）为class导入一个vptr，提供执行期链接，使每一个object能够找到相应的virtual table  （3）加强ctor，使其能够设定vptr的初值，使其指向virtual function table  
+	（2）为class导入一个vptr，提供执行期链接，使每一个object能够找到相应的virtual table  
+    （3）加强ctor，使其能够设定vptr的初值，使其指向virtual function table  
 	（4）加强dtor，使其能够释放vptr。  
 	<font color='red'>关于vptr放在最前端的好处，还待补充（看完4.4节后）</font>  
  

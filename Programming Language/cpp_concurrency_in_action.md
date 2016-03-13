@@ -479,6 +479,78 @@ if an acquire operation sees the result of a store that takes place after a rele
 若非原子操作sequenced-before原子操作A，而原子操作A又happens-before另一个线程的原子操作B，那么非原子操作也能保证顺序性。这也是使用mutex进行数据同步的思想。
 
 ##Chapter 06 Designing lock-based concurrent data structures
+###6.1 What does it mean to design for concurrency?  
+设计一个thread-safe的数据结构。除本质的要求外（线程安全），尽量能够提供可以多线程并发（而不只是serialization）的机会。  
+The smaller the protected region, the fewer operations are serialized, and the greater the potential for concurrency.
+####6.1.1 Guidelines for designing data structures for concurrency  
+线程安全和尽量能并发执行  
+
+* 线程安全的设计要求  
+	当一个线程在操作某数据，而导致该数据的invariants被破坏，那么这种破坏状态不能被其它线程所见  
+	避免接口调用导致的race condition（例如Table3.1），接口要能提供complete operations，而不是部分operation steps  
+	在出现异常时，要保证数据的invariants不被破坏  
+	限制用锁范围，避免嵌套锁  
+* 并发设计的思考（如何尽量少serialization，而多concurrency）  
+	锁范围内的部分操作能否移到锁外？   
+	对数据不同部分的保护可否使用不同的锁？  
+	所有的操作都需要同样等级的保护？  
+	数据结构的简单调整，能否改善并发执行情况？
+###6.2 Lock-based concurrent data structures  
+####6.2.1 A thread-safe stack using locks  
+Listing 6.1中，copy ctor， move ctor， copy assignment或者move assignment，这些函数调用会用到用户定义的代码，若这些代码调用了当前操作的stack object的函数，可能会发生deadlock，或者这些代码需要一把已经被当前stack object占用的锁，也可能会发生死锁。但这些问题是用户在使用你代码时需要考虑的。  
+本节的stack实现效率不高，根本就没有考虑concurrency，虽然是thread-safe，但是是serialization的。  
+####6.2.2 A thread-safe queue using locks and condition variables  
+注意，wait使用的锁是std::unique_lock.  
+文中分析了wait线程被唤醒后（因为notify\_one，故只有一个被唤醒），若发生了exception（比如Listing 6.2 中std::shared_ptr<>构建时抛出），该如何解决？作者给出了几种方法。一种是notify\_all()，若第一个唤醒的线程发生了异常，由于锁的原因，其它线程即使被唤醒，也是等待中，这样抛出异常的线程释放锁后，后续线程可以处理本该被第一个线程处理的数据。第二种是线程抛出异常后调用notify\_one()，这样唤醒其它线程以处理数据。第三种方式是将std::queue<T\>类型改为std::queue<std::shared_ptr<T\> \>，当然，这是针对若异常是由std::shared\_ptr<\>产生的情况的解决方法。  
+####6.2.3 A thread-safe queue using fine-grained locks and condition variables  
+Listing 6.4中，若head和tail都为NULL，那么队列为空；若只有一个元素，那么head和tail都指向该元素。若要用fine-grained的锁，那么肯定是head和tail各用一个，以便互不影响的访问。请考虑这种情况，队列中只有一个元素，此时head->next和tail->next是同一个元素（对应Listing6.4中的3和4标记），那么势必要对head和tail同时加锁，才能正确的处理数据（你需要读取head和tail后才能判断二者的next是否是同一个元素，在不读取之前，你是不知道的，所以这样你只能以最坏情况考虑），这样何谈精细控制？与6.2.1和6.2.2有何优势？
+
+* ENABLING CONCURRENCY BY SEPARATING DATA   
+	鉴于Listing6.4中的head->next和tail->next可能指向同一元素的情况，对此进行调整，引入dummy node（没有数据），而tail一直指向dummy node，而head在队列为空时，也指向dummy node，这样依旧可以进行是否为空判读，在为空时，不会进行head->next操作。同时，在非空是，head->next和tail->next不会指向同一个元素，因此就避免了Listing6.4中的情况。  
+	关于数据由原先的T变为了现在的std::shared\_ptr<T\>，原因是避免过多的复制（成本更低），因为增加一个新结点，是通过对原来的dummy node进行修改使携带有用的数据，同时在末尾再创建一个dummy node。  
+	注意学习通过get\_tail()来进行加锁的方式（pop\_head()调用）  
+	在pop\_head()中，若先get_tail()，后对head加锁，则可能多个线程在调用pop\_head()，获取到同一个tail，这会造成问题，故get\_tail()应在head加锁之后。  
+
+* WAITING FOR AN ITEM TO POP  
+	主要讲了添加wait\_and\_pop()时的要点，实践中再来参考。  
+###6.3 Designing more complex lock-based data structures  
+####6.3.1 Writing a thread-safe lookup table using locks  
+* DESIGNING A MAP DATA STRUCTURE FOR FINE-GRAINED LOCKING  
+	书中分析了实现关联容器的三种方法：  
+	（1）二叉查找树（如RB-Tree）  
+	二叉查找树因为每次查找或修改等操作都是从root结点开始，可能会逐步访问到叶结点，因此，mutex的范围不能得到精细控制，相比于对容器整体加锁，并发性不会有多大提升。  
+	（2）已排序数组  
+	需要对整个数组进行mutex  
+	（3）hash表  
+	Listing 6.11中，hash是用链接法进行散列的。hashthreadsafe\_lookup\_table类中包含了class bucket_type的定义，而后者相当于是一个链表，这些元素的hash值都相同。这样，首先根据散列函数查找到具体链表（无需同步），再到具体链表对元素进行操作（需要同步）。因此，对每一个链表的操作再进行mutex，则整体上来说，锁的粒度更精细一些。  
+	Listing6.12，给出了对整个hash表进行加锁的方法。  
+	
+####6.3.2 Writing a thread-safe list using locks  
+对于标准库中提供的容器，iterator相当于是容器元素的引用，也就是说容器范围内（容器是单独的class）的元素，外部有其引用（iterator不属于容器），这在3.2.2节中专门强调，最好不好传递共享数据的引用，因此，标准容器对于多线程的支持，在并发（concurrency）方面，并不能提供很好的性能。因此，本节实现了一个没有迭代器的单向链表容器。且对每个结点都使用一把锁。  
+##Chapter 07 Designing lock-free concurrent data structures  
+###7.1 Definitions and consequences
+####7.1.1 Types of nonblocking data structures  
+std::atomic\_flag实现的自旋锁是nonblocking，但不是lock-free  
+####7.1.2 Lock-free data structures	  
+lock-free的性质：<font color='red'>未理解，待完善，实践后再对定义进行修改，目前纯属硬性翻译</font>  
+（1）多个线程能够并发地访问数据；  
+（2）对于lock-free队列，若一个线程push和一个线程pop可同时进行；但若两个线程同时push，则会挂掉（break）；  
+（3）若一个线程在操作中suspend，另一个线程可以不用等待那个挂起（suspend）的线程，而完成自己的操作过程；  
+（4）使用compare/exchange（一般在循环中使用，因为此时其它线程也可能在访问同样的数据）时，若有相关线程suspend，而当前线程依然访问数据成功，则也算lock-free；  
+####7.1.3 Wait-free data structures  
+wait-free是在lock-free的基础上，加了一个限制，即所有访问wait-free 数据结构的线程，在不考虑其它线程的执行行为下，能够在有限步骤执行完操作。  
+####7.1.4 The pros and cons of lock-free data structures  
+使用lock-free的最大优点就是最大限度的提升并发能力，其次提升健壮性（若一个线程挂掉，不会影响别的线程；而lock-based中的一个线程挂掉，会破坏共享的数据）。  
+缺点就是不能限制线程对数据的访问（比如用锁进行排他性限制），因此，要保证数据invariant.由第5章提到的memory ordering，要注意各操作（线程间）的顺序。  
+lock-free没有deadlock，但是有livelock（live与dead意思刚好相反哦），当线程A和线程B都尝试修改数据，当A修改之后，B需要重新修改；当B修改之后，A也需要重新修改；若A、B同时尝试，则便出现live lock.但是因为线程调度的原因，比如A可能休眠了，这种情况不会一直存在，不过会影响性能。  
+lock-free的程序因为使用原子操作，相对于非原子操作来说，速度更慢；对于访问同一个原子变量的多个线程，需要在硬件上进行同步。这两点都对性能有很大不良影响。  
+###7.2 Examples of lock-free data structures  
+原子操作以及memory-ordering，来保证其它线程以正确的顺序读到正确的数据。    
+####7.2.1 Writing a thread-safe stack without locks  
+Listing7.2中的push操作，标记4使用了compare\_exchange\_weak，此处是new_node->next与head进行比较，若不相同，则将new\_node->next赋值为为head（相当于重新执行标记3的语句，这也是为什么需要用compare-exchange的原因），之后，将head更新为new\_node（因为前面的更新使得此时head可以更新为new\_node的条件满足）  
+在设计多线程程序时，要考虑异常对程序的影响，当然，这个考虑前面章节涉及到的地方，一直都强调如此。  
+####7.2.2 Stopping those pesky leaks: managing memory in lock-free data structures  
+
 ##参考  
 [Reentrant_mutex_url]:https://en.wikipedia.org/wiki/Reentrant_mutex  
 [Spurious_wakeup_url]:https://en.wikipedia.org/wiki/Spurious_wakeup  
