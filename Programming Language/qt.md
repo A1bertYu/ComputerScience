@@ -80,8 +80,9 @@ DESIGNABLE用于QtDesigner，暂且不表。
 SCRIPTABLE用于脚本，暂且不表。  
 SCRIPTABLE
 
- 
-
+####内存管理问题  
+<font color='red'>待续</font>   
+这篇blog待读：http://blog.qt.io/blog/2009/08/25/count-with-me-how-many-smart-pointer-classes-does-qt-have/
 ####Why Doesn't Qt Use Templates for Signals and Slots?
 模板和C语言的预编译器可以用来做一些奇技淫巧的事情（ incredibility smart and mind boggling things）。有一个很现实的原因，要做到跨平台，需要考虑多种编译器，有些对template的支持并不全面。不过，编译器的限制并不是主要原因，之所以MOC（meta object compiler）采用基于字符串的方式（string-based approach）而不是基于template，有以下五大原因。  
 
@@ -105,8 +106,154 @@ SCRIPTABLE
 ##QT工程实践
 ###Qt Linguist Manual
 主要涉及到两个命令行工具，lupdate和lrelease，前者用于搜寻源码文件（.cpp, .h和Qt Designer产生的.h文件）中的tr字符串，以便产生或者更新.ts文件；后者则将.ts文件转换为二进制的.qm文件，用于程序运行时的本地化，通过该.qm文件可以非常快速的查询翻译。
-###qmake
+###qmake  
+####qmake Function Reference  
+对qmake自带的函数进行介绍。对于具有返回值的函数，可以通过$$操作符获取其返回值。值得说明的是，在测试这些函数的过程中，若在pro文件中没有为CONFIG指定debug/release信息，这样qmake会生成三个文件，分别为Makefile<font color='red'>（代表什么模式？）</font>, Makefile.debug, and Makefile.release三个文件。在4.8.4中，若在CONFIG中指定了一些自定义的值，比如CONFIG+=xxx，则只会产生Makefile文件（qmake只会生成一个文件）。若pro中有message输出信息，对于每一个Makefile文件，则会输出一次，也就是说一条message语句可能会因为产生多个Makefile文件，而多次输出信息。若只想message只输出一条信息（即不论产生几个Makefile文件），可以使用语句
 
+	#如此，可保证message只会输出一次信息，不论产生几个Makefile文件
+	!build_pass:message( "This is a message" )  
+此外，函数中处理的variablename，是指形如CONFIG，而CONFIG的值一般的形式为debug release debug\_and_release等，列表形式，用空格隔开，非空格（如debug）为其中一个值。     
+
+* packagesExist(packages)  
+	从帮助文档了解，是Symbian系统特有，故此处只列出而不做说明。  
+* basename(variablename)  
+	例如，变量值是/etc/passwd，那么结果将是passwd。也就是获取路径中的最深一层（最右侧）。  
+* CONFIG(config)  
+	该函数可以接收一个或者两个参数。当只接收一个参数时，用于判断CONFIG变量中是否已经包含了该参数值；接收两个参数的处理过程如下，首先依旧是判断是否包含了第一个参数值，若是，还需要判断该参数是否是第二个参数列出的所有候选项中最后出现的那一个（the active config），若还是，结果返回为真；其它情况结果返回都为假。所谓最后出现，是指与候选列表中的参数相比（当然，候选列表要求包含第一个参数才行，不然直接判断为假了），此参数是最后一个添加到CONFIG变量中的。  
+* contains(variablename, value)  
+	顾名思义，比如contains(CONFIG, debug)  
+* count(variablename, number)  
+	变量中包含number个数量的值  
+* dirname(file)  
+	与前面basename(variablename)互补，将最深一层去掉之后的值，为返回值  
+* error(string)  
+	输出错误信息后，qmake会直接退出。我们前面说到，qmake存在运行三次的情况，在输出error的情况下，第一次执行便退出后续不再执行。  
+* message(string)  
+	输出信息到console  
+* warning(string)
+	与message类似，输出信息到console，只是该信息表示警告。  
+* eval(string)  
+	返回true/false，如eval(TARGET=myapp)  
+* exists(filename)  
+	支持正则表达式，'/'可用于目录分割符（所有平台），exists( $(QTDIR)/lib/libqt-mt* )  
+* find(variablename, substr)  
+* isEmpty(variablename)  
+	等价于count(variablename, 0) ，例如isEmpty( CONFIG )，若是空，则可以配置该变量  
+* join(variablename, glue, before, after)  
+	例如若CONFIG的值为debug release qt,且设定glue,before,after分别用G,B和A代替，那么产生的结果就是BdebugGreleaseGqtafter。另外，后面三个参数若不指定就默认为空值。  
+* member(variablename, position)  
+	返回position处的值，position默认为0，若指定的position不存在，则返回空字符串。  
+* find(variablename, substr)   
+	返回variablename中与substr能匹配的值，匹配支持正则表达式。  
+* for(iterate, list)  
+	遍历列表  
+* include(filename)  
+	将filename中的内容包含到当前工程中，内容导入位置即在include语句的地方。若包含成功，则返回true，否则返回false。若返回false，需要对文件进行检查，因为这会影响整个工程的构建。     
+* infile(filename, var, val)  
+	 文件filename中，是否包含了变量var，且var的值是否包含val   
+* prompt(question)  
+	输出提示信息，并返回输入内容。  
+* quote(string)  
+	顾名思义，将string放入双引号，如quote("yu xiao long")  
+* replace(string, old_string, new_string)  
+	第一个参数比如可以使CONFIG，那么该函数的作用是将CONFIG的内容中的old_string替换为new_string  
+* sprintf(string, arguments...)  
+	<font color='red'>按照C语言并结合QString.arg()形式的来使用，会报错，还不知道具体使用方法</font>
+* system(command)  
+	执行系统命令，返回0表示成功，其它表示失败。  
+* unique(variablename)  
+	若变量中包含了多个值，而多个值中有可能是相同的，那么该函数对相同值只输出一次。
+	
+		ARGS = 1 2 3 2 5 1
+ 		ARGS = $$unique(ARGS) #1 2 3 5
+####qmake Variable Reference  
+变量可以用来声明资源，配置工程信息，设置编译参数和设置链接参数。
+  
+* TEMPLATE  
+	**app** 默认值，用于构建应用程序。  
+	**lib** 构建library  
+	**subdirs** 在子目录中分别进行构建，子目录由SUBDIRS指定。  
+	**vcapp** Creates an application project for Visual Studio  
+	**vclib** Creates a library project for Visual Studio  
+
+* CONFIG  
+	用于配置工程信息和编译器参数。  
+	**release** 表示工程编译为release模式，若同时又指定了debug，则会忽略该参数。  
+	**debug** 同理，debug模式  
+	**debug\_and_release** 工程编译为debug和release模式，会有一些副作用。  
+	**build\_all** 如果指定为debug\_and\_release，则会分别在debug和release模式下进行构建。  
+	**ordered**  配合TEMPLATE的值为subdirs时使用，根据声明顺序对子目录进行构建。  
+	**precompile\_header** 预编译头。<font color='red'>待详细说明</font>  
+	**warn\_on** 编译器产生最多警告。  
+	**warn\_off** 编译器产生最少警告。若warn\_on被指定，则warn\_off会被忽略。 
+
+	当TEMPLATE是app或lib时：  
+	**qt** 包含qt库，qt库的路径会被自定添加。  
+	**thread** 多线程app或lib。qmake 
+
+####qmake Advanced Usage  
+* Operators  
+	* = 
+		对某变量赋值，该变量之前的值会被覆盖。  
+	* +=  
+		将值添加到变量。前面笔记也说过，变量是对形如CONFIG之类的称呼，而CONFIG的值其实类似于一个列表，因此+=就是将新的值添加到该列表。  
+	* -=  
+		将值从变量中移除  
+	* *=  
+		将值添加到变量。若该值已经存在，不做任何操作。  
+	* ~=  
+		使用正则表达式，替换字符串。<font color='red'>具体规则没看懂</font>  
+	* $$  
+		当qmake处理pro文件时，用于提取变量中的值。  
+	* $  
+		当Makefile文件被处理时，用于提取变量中的值。
+	* :  
+		用于嵌套作用域，当{}中只包含一个条件语句时，等效于“与逻辑”。如下所示，两种写法等价        
+			
+			macx {
+     			debug {
+         			HEADERS += debugging.h
+     			}
+ 			}
+			macx:debug {
+     			HEADERS += debugging.h
+ 			}  
+	* |  
+		也是用于嵌套作用域，等效于“或逻辑”。  
+			
+* Scopes   
+	条件语句和之后{}，注意，{要与条件语句在同一行，而}另起一行。  
+	
+		<condition> {
+     		<command or definition>
+     		...
+ 		}
+* Configuration and Scopes  
+	CONFIG变量比较特殊，其包含的值可以用于条件判断，比如若其包含了debug，那么debug可以被用作条件语句，其后面可以跟{}，{}里面的语句会被qmake执行。  
+* Platform Scope Values  
+	在QT安装目录下的mkspecs文件夹里面，有很多 built-in platform and compiler-specific values，这些值也可以用于条件判断.  
+* Variables  
+	除了qmake内置的变量外，也可以自定义变量。若qmake第一次遇到非内置变量被赋值时，将该变量当做自定义变量。  
+	连接变量值：  
+		
+		#该语句会使TARGET的值为myproject_app（假设TEMPLATE=app，也就是连上TEMPLATE的值）  
+		TARGET = myproject_$${TEMPLATE}    
+* 自定义函数  
+	格式如下：
+	
+		defineReplace(functionName){
+     		#function code
+ 		}
+		
+		defineTest(){
+			
+		}
+* Adding New Configuration Features  
+	也可以自定义工程配置参数（ Features are collections of custom functions and definitions in .prf files ），将该参数名称加入到CONFIG变量中，qmake会根据该名称来搜索对应的prf文件。  
+####Creating Shared Libraries  
+在帮助文档中，QT介绍了一种结合pro和头文件的方式，来使得创建或者使用 Shared Libraries的通用形式。此外，使用 Shared Libraries的用户，需要包好Shared Libraries的公共头文件。但是，在创建Shared Libraries一些内部的头文件，若被公共头文件包含了，怎么办？这时可以考虑使用
+ 
+	
 ###Qt Designer
 使用Qt设计师时，可以有两种模式，在“设置->属性”菜单中可以调整，分别为multi-window和docked window，这两种模式只是在编辑UI时呈现的编辑界面有不同（对UI本身没有影响），个人感觉后者在编辑UI时好用一点。
   
@@ -118,7 +265,63 @@ Qt布局的作用：
 （3）Arrange elements to adhere to layout guidelines for different platforms.  
 
 * Containers in Qt Designer   
-	Container widgets可以以表格形式来管理一组object。
+	Container widgets可以以表格形式来管理一组object。 
+
+###QtNetwork Module  
+
+###Concurrent Programming  
+####Threads and QObjects  
+QThread继承自QObject. QObject对象（即继承自QObject），可以在多个线程中使用，发送signal和signal对应的slot可以在不同的线程，此外，postEvent的线程和处理该event的线程，也可以不同。因为每一个线程可以有其自己的事件循环。  
+
+* QObject Reentrancy   
+	（1）QObject中，父子必须要在相同的线程中进行创建。所以，在创建QThread时，不能指定this为其parent，因为QThread自身做为一个线程，被创建后肯定不会与当前的this在同一个线程。    
+	（2）事件驱动的objects（Event driven objects）应该只能用在单线程中。  
+	（3）创建于线程中的对象，必须要在删除线程本身之前进行删除。   
+	（4）QObject是reentrant，且大多数non-GUI subclasses也是reentrant，但是GUI的类，则不是reentrant，且GUI的类只能用于主线程。    
+* QWaitCondition  
+	注意是不同线程之间的唤醒，一般是各线程公用同一个QWaitCondition对象，且QWaitCondition对象wait同一把锁，当进入wait状态，锁释放，在其它线程调用wake后，wait的线程返回，返回前会对锁进行lock()，也就是说，其返回代表其得到了锁。  
+* Per-Thread Event Loop  
+	An event loop in a thread makes it possible for the thread to use certain non-GUI Qt classes that require the presence of an event loop (such as QTimer, QTcpSocket, and QProcess). It also makes it possible to connect signals from any threads to slots of a specific thread.  
+	每一个线程都有一个事件循环，而且具体事件的收发对象只能在同一个线程，也就是说不能跨线程收发事件。  
+	在任何线程中，可以调用thread-safe函数QCoreApplication::postEvent()来发送事件，QT会自动将事件发送至事件对象所在的线程。  
+	但是对于QCoreApplication::sendEvent()只能将事件发送至调用该函数的线程中。  
+* Accessing QObject Subclasses from Other Threads  
+	不在QObject对象所在的线程中访问QObject对象时，可能会出现这种情况，QObject可能正在接受事件循环中的事件（事件循环所在线程即为QObject对象所在线程），这时需要对QObject加锁，否则会出现UB
+
+####例子  
+* Mandelbrot Example  
+	The Mandelbrot example shows how to use a worker thread to perform heavy computations without blocking the main thread's event loop.  
+	在主线程中，创建了一个QThread（子类RenderThread），当需要background计算时，主线程调用了RenderThread对象的函数，注意，RenderThread所使用的数据都在自身对象中，其与主线程通过传值方式交互。RenderThread发送signal，而主线程实现了slot，两者位于不同线程。这种信号槽的连接，实际是Qt::QueuedConnection类型（虽然type传的参数值还是Qt::AutoConnection），而queue类型的话，QT需要将signal传递的参数值先保存起来，故要qRegisterMetaType()。    
+	注意此例子中的QMutex和QWaitCondition的配合。  
+
+
+###The Event System  
+####Event loop  
+
+* QCoreApplication::exec()  
+	在调用该函数后，便进入了主事件循环（main event loop），直到QCoreApplication::exit()调用，便退出了主事件循环。主事件循环接收窗口事件，并分发至应用的各Widgets中。  
+	对于清理代码（如释放资源），推荐是收到aboutToQuit()信号（该信号在即将退出主循环时发送，此时不会再有用户交互）后进行处理。而不是在QCoreApplication::exec()之后处理，因为有些系统执行该函数后不会返回，这样其后续的清理代码则无法被执行。  
+
+
+
+####Timers   
+
+* 直接调用QObject的函数来使用定时器       
+	QObject基类中的函数startTimer ( int interval_ms )可以创建定时器，当定时事件发生，创建定时器的QObject对象（也可能是子类）的 timerEvent()会被调用（子类可以改写该虚函数）。注意，若时间间隔设置为0，则在没有窗口事件的情况下，会一直有QTimerEvent事件发生。  
+	QApplication::exec()用于启动事件循环，当定时事件发生，QTimerEvent直到被处理才能离开事件循环，若一直不处理，则后续定时事件即使到了时间也不会发生。  
+* 使用QTimer  
+	在多线程环境下，可以使用QTimer，且只有开启事件循环时才能使用QTimer，在非GUI线程中，通过执行QThread::exec()来进行事件循环。QTimer通过 thread affinity来判断发送timeout()信号的线程，因此，开启和停止QTimer必须在QTimer对象所在的线程进行。  
+* 使用QBasicTimer  
+	This is a fast, lightweight, and low-level class used by Qt internally. 而QTimer则是high-level。接收QBasicTimer的QTimerEvent事件的QObject必须要实现 timerEvent()。  
+
+###Others  
+####Dialog  
+* QProgressDialog  
+	modal和modeless两种，后者一般用于显示后台任务进度。通过不停调用setValue() 来展示当前进度。对话框只有在minimumDuration()时间之后才会显示，也就是说，操作时间小于minimumDuration()的（默认4秒），不会显示进度对话框。  
+
+
+
+
 ###网络文章  
 ####Qt Internals & Reversing
 [文章地址][Qt_internal_reversing_url]    
