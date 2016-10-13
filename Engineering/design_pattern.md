@@ -52,6 +52,67 @@
 		}
 	
 	Java中Observable的实现采用类，而不是接口，若要使用，必须继承，而Java中不支持多重继承，这也限制了其使用，有时候你可能已继承了某个类，但又需要Observable，那么，就无法解决。
+##单例模式  
+其实就是全局变量（Providing a global point of access, a singleton is global state — it’s just encapsulated in a class），封装在类里面的全局变量。
+
+	class FileSystem
+	{
+		public:
+	  	//写法1，可以实现延迟初始化，Lazy initialization
+		static FileSystem& instance()
+		{
+			static FileSystem *instance = new FileSystem();
+			return *instance;
+		}
+		//写法2 可以利用多态性质
+		FileSystem& FileSystem::instance()
+		{
+		  #if PLATFORM == PLAYSTATION3
+		    static FileSystem *instance = new PS3FileSystem();
+		  #elif PLATFORM == WII
+		    static FileSystem *instance = new WiiFileSystem();
+		  #endif
+		
+		  return *instance;
+		}
+		//写法3，无法使用多态（其实感觉也可以），不会延迟初始化，但某些场景下
+		//比如游戏中，延迟初始化反而是不好的。
+		static FileSystem& instance() { return instance_; }
+	  	static FileSystem instance_;
+	
+	private:
+	  FileSystem() {}
+	};
+若单例变量可以在全局访问，那么当以后需要修改该类时，因为代码散落各处（甚至有可能被当做library使用），破坏了模块化，使得修改成本很高。  
+
+* 缺点（主要因为其就是一个全局变量）  
+	（1）They make it harder to reason about code  
+	（2）They encourage coupling. 顺便提及关于耦合的一些看法：By controlling access to instances, you control coupling.  
+	（3）They aren’t concurrency-friendly. 这是全局变量的通病。
+
+* 在使用单例模式前先考虑其它方式  
+	（1）能否使用静态类解决  
+	（2）因为是单例是全局可访问，那么能否限制其只在某个代码区块可被访问呢？如下：  
+
+		class FileSystem
+		{
+		public:
+		  FileSystem()
+		  {
+		    assert(!instantiated_);
+			//控制该变量的值，使得访问并不会是全局的，只会在某一个区域
+		    instantiated_ = true;
+		  }
+		
+		  ~FileSystem() { instantiated_ = false; }
+		
+		private:
+		  static bool instantiated_;
+		};
+		
+		bool FileSystem::instantiated_ = false;  
+	（3）通过传参的形式来使用，包括函数的形参，或者通过基类的数据成员形式（当然，后者与普通的函数传参的形式不同）  
+	（4）若当前已经有了全局模块，那么，能否放在该全局模块实现调用。
 
 ##装饰者模式  
 * 开放关闭原则：类应该对扩展开放，对修改关闭  
@@ -148,7 +209,7 @@
 **定义**：将“请求”封装成对象，以便使用不同的请求、队列或者日志来参数化其它对象。命令模式也支持可撤销的操作。命令模式可将“动作的请求者”与“动作的执行者”分离解耦。  
 **具体实现**：三个组成部分，Client, Command和Invoker. 一般在Client类中存储了Command类型的引用成员（或者Command引用类型的列表），这样，Client就可以调用Command引用成员的execute()方法，从而执行具体命令。至于execute()中执行了什么语句，Client无需了解。那么，不同的Command对象，实现不同的execute()方法，一般是在Command对象中，定义一个Invoker类型的数据成员，而execute()中则调用该Invoker类型的某些成员方法。以上，便实现了Client和Invoker的解耦。  
 **撤销**：在Command中加入undo()实现，这样在Client中每一次操作后记录当前执行的Command成员（若要支持多次撤销，可用一个Stack将每一次的Command类型成员装入），在撤销的时候，调用这些刚才保存的那些Command成员的undo()即可。  
-**宏命令（Party Mode）**：若要一次执行多个命令，则可以建立这样一个Command对象，而在该Command对象中，包含多个Command对象的引用，在该Command对象的execute()中，只需要简单调用其包含的Command对象引用即可。    
+**宏命令（Party Mode）**：若要一次执行多个命令，则可以建立这样一个Command对象，而在该Command对象中，包含多个Command对象的引用，在该Command对象的execute()中，只需要简单调用其包含的Command对象引用即可。例如，按下遥控器的一个按钮，就能够执行调暗灯光、打开音响和电视。    
 **注意事项**：要注意，对于每一个请求者，都需要建立一个Command类型对象。例如，开灯和关灯，若是有两个按钮（两个请求者），则要分别创建开灯的Command对象和关灯的Command对象。  
 ##适配器与外观模式  
 * 适配器模式的定义  
@@ -182,6 +243,22 @@ Model: the model is responsible for business behaviors and state management.
 
 http://martinfowler.com/eaaDev/uiArchs.html  
 
+###Proactor Pattern  
+* Conventional Concurrency Models  
+	最常见的两种方式：Synchronous multi-threading and reactive programming  
+	（1）Synchronous multi-threading  
+		每一个线程以阻塞方式来进行连接建立、文件传输等操作。  
+		优点：编码简单，各线程之间基本可互不干扰。  
+		缺点：  
+		① Threading policy is tightly coupled to the concurrency policy（这点没看明白，说是只能根据可用资源进行优化，而不是根据连接数进行优化）  
+		② Increased synchronization complexity: 在使用服务器的共享资源时，会要考虑多线程的同步问题  
+		③ Increased performance overhead：context switching, synchronization, and
+		data movement among CPUs  
+		④ Non-portability:不同的OS会有不同的线程实现  
+			
+		  
+		
+policy:
 ##参考  
 [mvp_mvc_difference_url]:[http://stackoverflow.com/questions/2056/what-are-mvp-and-mvc-and-what-is-the-difference]
 

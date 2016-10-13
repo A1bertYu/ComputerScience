@@ -154,7 +154,11 @@ LinearLayout, RelativeLayout和WebView
 ####Building Layouts with an Adapter  
 A subclass of the AdapterView class uses an Adapter to bind data to its layout. The Adapter behaves as a middleman between the data source and the AdapterView layout—the Adapter retrieves the data (from a source such as an array or a database query) and converts each entry into a view that can be added into the AdapterView layout.  
 例如，ListView和GridView  
-Android提供了两种常用的Adapter，ArrayAdapter和SimpleCursorAdapter.  
+Android提供了两种常用的Adapter，ArrayAdapter和SimpleCursorAdapter.   
+* Adapter  
+	Adapter在数据与视图之间起着桥梁作用，The Adapter provides access to the data items. The Adapter is also responsible for making a View for each item in the data set.  
+* ListView  
+	ListView是ViewGroup的子类（非直接继承）。其显示的item（View）由Adapter提供，如前所述，Adapter将数据源转换为View，再由ListView进行显示。   
 ###Supporting Different Devices  
 ####Supporting Different Screens  
 屏幕的两大参数：size和density。  
@@ -221,6 +225,7 @@ layout-land文件夹下用于水平放置时的布局。默认情况下，不带
 	* Traceview  
 		Traceview is a graphical viewer for execution logs saved by your application. Traceview can help you debug your application and profile its performance.
 	* Pixel Perfect magnification viewer  
+	* 反编译工具[apktool][apktool_url]  
 
 * 发布   
 
@@ -251,14 +256,26 @@ Content Providers用于管理结构化数据，其对数据进行了封装，也
 		content://user_dictionary/words  
 * Content Provider Permissions  
 	A provider's application can specify permissions that other applications must have in order to access the provider's data.   
-	若app要使用其它app的provider，则需要声明权限（<font color='red'>但若非系统的包含了provider的app，怎样才能使其它app拥有访问它的provider的权限呢？</font>）。例如，
+	若app要使用其它app的provider，则需要声明权限。例如，
 
 		 <uses-permission android:name="android.permission.READ_USER_DICTIONARY">
+	对于自定义的ContentProvider，可以在AndroidManifest.xml中，对其<provider\>的属性android:writePermission和android:readPermission进行赋值，以次声明读和写该provider的权限。赋的值也是在AndroidManifest.xml中通过标签<permission\>进行定义。
 * 增删改  
 	insert：使用ContentValues，将一行数据的所有列put到该类型的对象中，再进行insert操作。  
 	update：使用ContentValues，将要更新的值put到该类型的对象中，再进行update操作。  
 	delete：只需要指明条件即可。  
 * Provider Data Types  
+	支持的数据类型有：文本，整型，长整型，单精度浮点型，双精度浮点型，BLOB。  
+	* MIME Type Reference  
+		ContentProvider.getType()返回的是MIME Type，这种类型由两部分组成，type/subType，返回的type可以是常用的已知类型，如text/html，表示type是text，而subType是html；对于自定义的类型（也称"vendor-specific" MIME types），type的返回值只能是两种，vnd.android.cursor.dir（对应查询结果是多行时）和vnd.android.cursor.item（对应查询结果为1行），而子类型是 provider-specific了（也就是在自定义的ContentProvider中定义，可以用已有的类型，也可以根据自己的APP来定义合适的）。
+		
+* 总结  
+	官方文档称一般无需自定义ContentProvider，只有在与其它APP共享数据（包括 copy and paste complex data or files from your application to other applications），以及在自己的APP中需要对自定义的数据库进行查询（文档原话，中文是我的理解：to provide custom search suggestions in your own application）。我们知道，ContentProvider通过Authority进行区分，一个ContentProvider可以对应多个authorities（只需要在AndroidManifest.xml中进行赋值，以;隔开），当我们以下面语句来进行数据操作时，若Uri（注意前面笔记，关于URI和authority的关系）是对应自定义的ContentProvider，则是调用该provider的对应操作。    
+
+		context.getContentResolver().update(
+									ScheduleContract.SearchIndex.CONTENT_URI,
+                					new ContentValues(), null, null);
+	我们可以这么思考，若URI是自定义的，那么，对其的操作理应也是自定义的，因为系统还没有智能到通过一个未知的URI名称来操作数据（若我们没有定义URI对应的ContentProvider，比如这个provider是操作数据库的，那么没有我们的定义，系统怎么知道这个URI操作的数据库名称叫什么呢？）。对于系统已经定义过的URI，比如UserDictionary.Words.CONTENT_URI，那么对其操作就无需自定义ContentProvider了。还有一点，这也是Android普遍的特点，就是我们无需自己实例化自定义的ContentProvider，通过上述语句，只要URI指向了我们自定义的provider，那么，对应的方法就会调用。
 	
 ###Service  
 Service对象本身是在主线程中，若其要做CPU密集型的工作，则其要spawn its own thread in which to do that work. Service的启动方式有两种，Context.startService()和Context.bindService().  
@@ -414,14 +431,16 @@ A stub provider implements the content provider class, but all of its required m
 	首先，服务器端发送信息到BroadcastReceiver，为了回应广播，调用ContentResolver.requestSync()来进行数据同步。现在有很多类似Google Cloud Messaging (GCM)的产品，若使用GCM，只有在消息到达时，才会激活BroadcastReceiver，从而可以响应同步。不建议使用轮询的方式查询服务器，因为这需要一直开启一个Service进行周期性的查询。  
 	注意：若是服务器同时推送到所有设备，这些设备基本上会同时进行同步操作，这会对服务器访问造成压力。因此，最好是分开推送。  
 * Run the Sync Adapter When Content Provider Data Changes  
-	当更新Content Provider时，也想更新服务器端的数据，这就需要为content provider注册一个观察者。观察者是通过继承ContentObserver 实现，覆写其onChange()函数，在该函数中调用content provider的requestSync()进行同步。在Content Provider的数据被修改后，框架会自动调用（因为框架知道Content Provider的哪些操作会使得数据变化，增加一层框架，可以更好的管理同步操作，以及可以增加更多信息（比如同步的账号信息），而不是content provider在数据变化时直接进行同步）其观察者的onChange()函数。在registerContentObserver()中，可以传递想观测数据的content URI.  
-	注意，若APP中使用sync adapter framework是借助了Stub Content Provider（见前面笔记），因为此时数据不是通过Content Provider进行操作管理，故是否有数据变化，sync adapter framework是不能感知的，也就是说onChange()不会被调用。这时的同步机制（从数据变化到调用requestSync() ）需要自己实现。  
+	当更新Content Provider时，也想更新服务器端的数据，这就需要为content provider注册一个观察者。观察者是通过继承ContentObserver 实现，覆写其onChange()函数，在该函数中调用content provider的requestSync()进行同步。在Content Provider的数据被修改后，the content provider framework (注意framework类型)会告知其观察者，也就是调用观察者的的onChange()函数，因而，我们若在该函数中调用requestSync() 便进行了自动同步。在registerContentObserver()中，可以传递想观测数据的content URI.  
+	注意，若APP中使用sync adapter framework是借助了Stub Content Provider（见前面笔记），因为此时数据不是通过Content Provider进行操作管理，故是否有数据变化，ContentProvider是不知道的，也就是说即使注册了观察者，在数据变化时，观察者的onChange()也不会被调用。这时的同步机制（从数据变化到调用requestSync() ）需要自己实现。  
 * Run the Sync Adapter Periodically  
 	通过addPeriodicSync()、AlarmManager和setSyncAutomatically()等方式触发。   
 * Run the Sync Adapter On Demand  
 	这种方式不推荐，The framework is specifically designed to conserve battery power when it runs sync adapters according to a schedule.   
 	使用方法： 首先set the sync adapter flags for a manual sync adapter run, then call ContentResolver.requestSync().  
-	两个flag：SYNC_EXTRAS_MANUAL，强制为手动同步；SYNC_EXTRAS_EXPEDITED，立即开始同步。  
+	两个flag：SYNC\_EXTRAS\_MANUAL，强制为手动同步；SYNC_EXTRAS\_EXPEDITED，立即开始同步。    
+####关于Sync Adapter的总结  
+必须要有用户自定义的ContentProvider，同步框架才能运行。因为同步框架需要指定android:contentAuthority属性，而该属性值必须从AndroidManifest.xml中provider标签下的android:authorities属性值中进行选择，那么，为有provider标签，必须要自定义ContentProvider了。关于需不需要自定义ContentProvider，文档中对此也进行了说明。若不需要自定义ContentProvider，而同步框架又需要，那么就定义Stub Content Provider吧。同步操作通过ContentResolver.requestSync()启动，也就是说，在判断需要同步后，你只需要调用ContentResolver.requestSync()，其它就交给同步框架处理了。
 ####Transmitting Network Data Using Volley  
 Volley is not suitable for large download or streaming operations, since Volley holds all responses in memory during parsing. 大的数据下载请用DownloadManager.  
 * Sending a Simple Request  
@@ -436,6 +455,7 @@ Volley is not suitable for large download or streaming operations, since Volley 
 
 #参考资料  
 [Developer_guide_url]:[https://developer.android.com/guide/index.html]
-[intent_resolution_url]:[http://developer.android.com/guide/components/intents-filters.html#Resolution]
+[intent_resolution_url]:[http://developer.android.com/guide/components/intents-filters.html#Resolution]  
+[apktool_url]:[http://ibotpeaches.github.io/Apktool/]
 
 	

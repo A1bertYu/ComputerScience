@@ -250,8 +250,39 @@ SCRIPTABLE
 		}
 * Adding New Configuration Features  
 	也可以自定义工程配置参数（ Features are collections of custom functions and definitions in .prf files ），将该参数名称加入到CONFIG变量中，qmake会根据该名称来搜索对应的prf文件。  
-####Creating Shared Libraries  
-在帮助文档中，QT介绍了一种结合pro和头文件的方式，来使得创建或者使用 Shared Libraries的通用形式。此外，使用 Shared Libraries的用户，需要包好Shared Libraries的公共头文件。但是，在创建Shared Libraries一些内部的头文件，若被公共头文件包含了，怎么办？这时可以考虑使用
+###Creating Shared Libraries  
+在帮助文档中，QT介绍了一种结合pro和头文件的方式，来使得创建或者使用 Shared Libraries的通用形式。此外，使用 Shared Libraries的用户，需要包好Shared Libraries的公共头文件。但是，在创建Shared Libraries一些内部的头文件，若被公共头文件包含了，怎么办？这时可以考虑使用[该文档][create_lib_qt]的方法。   
+  
+####动态链接和静态链接的区别，以及各自的适用范围   
+
+* 在使用dll时，app需要连接该dll对应的lib的原因  
+	这种lib称为[Import libraries][import_lib_wiki]，其与静态链接库的后缀名相同。作用：Linking to dynamic libraries is usually handled by linking to an import library when building or linking to create an executable file. The created executable then contains an import address table (IAT) by which all DLL function calls are referenced (each referenced DLL function contains its own entry in the IAT). At run-time, the IAT is filled with appropriate addresses that point directly to a function in the separately loaded DLL.  
+
+
+####How to Create Qt Plugins  
+QT Plugins是一种dll，但通过使用QLibrary，可以提供比dll更多的功能，例如，可以判断生成dll的Qt版本与当前使用该dll的应用程序的Qt版本是否相同；。
+
+* Plug & Paint Example  
+	A plugin is a dynamic library that can be loaded at run-time to extend an application.    
+http://stackoverflow.com/questions/496664/c-dynamic-shared-library-on-linux  
+http://stackoverflow.com/questions/2802960/what-is-a-qt-plugin  
+http://stackoverflow.com/questions/10946477/reduce-exe-size-exe-compressor  
+http://stackoverflow.com/questions/7973274/how-to-reduce-the-size-of-executable-produced-by-mingw-g-compiler  
+http://upx.sourceforge.net/  
+###Drag and Drop  
+
+* dropEvent()   
+	unpack dropped data and handle it in way that is suitable for your application. 若拖拽落入了Widget，则Widget的该函数会被调用。  
+* dragMoveEvent()  
+	拖拽操作进行中，会调用拖拽点所在的Widget对象的该函数。  
+* dragEnterEvent()  
+	也是在拖拽操作进行中，会拖拽点所在的Widget对象的该函数，用于告知Widget能够接收的数据类型. 若想要接收QDragMoveEvent或QDropEvent，则必须实现该函数。  
+* dragLeaveEvent()  
+	当拖拽操作的拖拽点要离开该Widget时，该Widget的该函数会被调用。  
+* startDrag()  
+	Starts a drag by calling drag->exec() using the given supportedActions.可以参考例子"Drag and Drop Puzzle Example"中的PiecesList类对该函数的实现。  
+
+  
  
 	
 ###Qt Designer
@@ -268,6 +299,33 @@ Qt布局的作用：
 	Container widgets可以以表格形式来管理一组object。 
 
 ###QtNetwork Module  
+1. QNetworkAccessManager  
+QFtp已弃用，且QT4对QFtp的实现有[bug][qftp_bug_url].  
+The QNetworkRequest class holds a request to be sent with QNetworkAccessManager.   
+###Overview of Qt's Undo Framework  
+The Command pattern is based on the idea that all editing in an application is done by creating instances of command objects. 参考设计模式的笔记(design_pattern.md)，笔记中说明了命令模式的三个组成部分，对照着QT中的例子（Undo Framework，路径为4.8.4/demos/undo），我们以此来说明命令模式的实现方法。  
+####Qt中关于命令模式的相关类  
+1. QUndoCommand: A QUndoCommand represents a single editing action on a document;   
+	为了支持**宏命令**（command macros，定义请见设计模式笔记），QUndoCommand对象可以有多个子命令（类型也是QUndoCommand），Undoing or redoing the parent command will cause the child commands to be undone or redone. 如此，便支持了宏命令。  
+	为了支持**命令合并**（ command compression），QUndoCommand定义了两个成员方法，分别为虚函数id()和虚函数mergeWith()。对于需要支持命令合并的派生的Command类，其id()返回值需要与其它类型的Command不同（当然，若派生的Command类不想支持命令合并，则完全不用实现上述两个虚函数。），mergeWith()其传参为QUndoCommand基类指针，这样可以定义两个同类型命令的合并操作。命令合并是在QUndoStack对该命令push时完成的。  
+	对于 **命令合并**，举个例子，比如先将某个图元设置为了红色，而**紧接着**又设置为蓝色，这两个命令最后就合成了一个命令，这样，进行撤销操作后，并不会使图元变为红色（因为红色命令已经被合并），而是红色之前的一个命令的结果。
+2. QUndoStack: The QUndoStack class is a stack of QUndoCommand objects. It contains all the commands executed on the document and can roll the document's state backwards or forwards by undoing or redoing them.  
+	QUndoStack记录了当前的命令位置（通过index()函数获取），注意通过push()添加命令时，就执行了该命令（此时，当前命令的位置index()与count()相等），但是，QUndoStack的redo ()和undo()方法使得当前命令并不一定是在栈顶，这就是需要index()来确定当前命令的原因。当当前命令不在栈顶，而此时又push了新的命令，那么，当前命令到栈顶之间的所有命令（不包括当前命令）会被删除掉。  
+	* Clean State  
+		当文档保存到磁盘后，可以对QUndoStack对象调用setClean()以将其置为clean状态。当通过undo和redo操作使得QUndoStack对象进入了clean状态，则该对象会发射信号cleanChanged(). 当然，若从clean状态变为非clean的状态时，也会发射该信号。  
+3. QUndoGroup: The QUndoGroup class is a group of QUndoStack objects.  
+	对于多文档的编辑，因为每一文档都会对应有撤销，此时QUndoGroup就比较适用。  
+4. QUndoView: QUndoView is a QListView which displays the list of commands pushed on an undo stack.  
+####从undo实例来看命令模式  
+从设计模式笔记中，我们知道命令模式分为三个组成部分：Client, Command和Invoker，那么，如何与实例中的具体实现类进行对应呢？  
+
+1. Client  
+	很明显，我们的操作都在主窗口中进行，也就是说，MainWindow其实就是Client，那么，操作是通过向QUndoStack中push命令来实现的，也就是说Client只与Command打交道（其实是通过QUndoStack来间接调用QUndoCommand的undo()和redo()函数）。  
+2. Command  
+	commands.h中的各QUndoCommand的派生类，主要是实现undo()和redo()函数，在这些函数中，使用Invoker来进行具体的操作。  
+3. Invoker  
+	实际上Document也起了Invoder的作用。注意，虽然QUndoStack是存放在Document中（这是因为每个文档需要记录自己的操作记录，这样放置也算合理），但是Document的真正功能是Invoker，别混淆了。    
+	
 
 ###Concurrent Programming  
 ####Threads and QObjects  
@@ -293,6 +351,12 @@ QThread继承自QObject. QObject对象（即继承自QObject），可以在多�
 	The Mandelbrot example shows how to use a worker thread to perform heavy computations without blocking the main thread's event loop.  
 	在主线程中，创建了一个QThread（子类RenderThread），当需要background计算时，主线程调用了RenderThread对象的函数，注意，RenderThread所使用的数据都在自身对象中，其与主线程通过传值方式交互。RenderThread发送signal，而主线程实现了slot，两者位于不同线程。这种信号槽的连接，实际是Qt::QueuedConnection类型（虽然type传的参数值还是Qt::AutoConnection），而queue类型的话，QT需要将signal传递的参数值先保存起来，故要qRegisterMetaType()。    
 	注意此例子中的QMutex和QWaitCondition的配合。  
+* OPC客户端开发中的多线程  
+	具体的线程是这样规划的：  
+	（1）UI线程为主线程，用于显示；  
+	（2）监听线程（也用作服务器线程和OPC线程的管理），用于监听前置机端口，当有前置机连接进来时，创建一个服务器线程用于IEC-104通信  
+	（3）OPC客户端线程，用于获取OPC设备数据以及发送控制信息给OPC设备  
+	监听线程创建于UI线程的空间中（即new语句在UI线程中执行）；服务器线程和OPC线程则创建于监听线程中（new语句在监听线程所在类的run()函数体内执行）。在调试程序时发现如下情况，各线程的事件循环机制所引发的代码执行是发生在该线程被创建时所在的线程，也就是说监听线程的事件循环调用是在UI线程执行的，而服务器线程和OPC线程则是在监听线程中。这显然不是所期望的，不然，程序的结构需要更改，因为设计的前提就是各线程的事件循环在本线程中进行执行。后来尝试了各种方法，比如，Qt提倡的moveToThread，而不是直接继承QThread，都无法解决问题。因为在各线程中用到了定时器事件以及如QTcpSocket事件，若是采用moveToThread，则难以在Worker类中实现（当然，没有尝试，只是预估，这个有时间再试一下），后来看到[此文][use_movetothread_first]，采用了其开篇反对的一种方法解决了问题。
 
 
 ###The Event System  
@@ -318,6 +382,8 @@ QThread继承自QObject. QObject对象（即继承自QObject），可以在多�
 ####Dialog  
 * QProgressDialog  
 	modal和modeless两种，后者一般用于显示后台任务进度。通过不停调用setValue() 来展示当前进度。对话框只有在minimumDuration()时间之后才会显示，也就是说，操作时间小于minimumDuration()的（默认4秒），不会显示进度对话框。  
+####Qt中的快捷键  
+Alternatively, if the shortcut key corresponds to some character in the text of the button, you can preped & to that character. If you want a literal &, use &&.
 
 
 
@@ -401,7 +467,13 @@ QMetaObject::activate()中，当前的connection（注意，信号和槽是conne
 关于动态调用，使用QMetaObject提供的invokeMethod。
 
 ###Dynamic C++ Proposal  
-[文章地址][Dynamic C++ Proposal url]  
+[文章地址][Dynamic C++ Proposal url]   
+
+
 ##参考
 [Qt_internal_reversing_url]:http://www.codeproject.com/Articles/31330/Qt-Internals-Reversing?msg=2827698#xx2827698xx   
 [Dynamic C++ Proposal url]:http://www.codeproject.com/Articles/31988/Dynamic-C-Proposal  
+[qftp_bug_url]:https://bugreports.qt.io/browse/QTBUG-2484  
+[create_lib_qt]:http://wiki.qt.io/How_to_create_a_library_with_Qt_and_use_it_in_an_application
+[use_movetothread_first]:http://blog.qt.io/blog/2010/06/17/youre-doing-it-wrong/  
+[import_lib_wiki]:https://en.wikipedia.org/wiki/Dynamic-link_library#Import_libraries
